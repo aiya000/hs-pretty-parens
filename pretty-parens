@@ -1,0 +1,83 @@
+#!/usr/bin/env stack
+-- stack --resolver lts-14.15 --install-ghc runghc --package megaparsec --package safe
+
+import Control.Applicative
+import Control.Monad
+import Data.Void
+import Safe
+import Text.Megaparsec (Parsec, runParser)
+import qualified Text.Megaparsec as Parser
+import qualified Text.Megaparsec.Char as Parser
+
+main :: IO ()
+main = do
+  code <- getLine
+  let result = runParser parseCodeInitial "stdio" code
+  case result of
+    Right a -> putStrLn a
+    Left e -> do
+      putStrLn "error!"
+      print $ e
+
+
+type Parser = Parsec Void String
+
+parentheses :: [(Char, Char)]
+parentheses =
+  [ ('(', ')')
+  , ('[', ']')
+  , ('{', '}')
+  , ('<', '>')
+  ]
+
+
+skip :: Parser ()
+skip = void $ Parser.many Parser.spaceChar
+
+
+parseCodeInitial :: Parser String
+parseCodeInitial = parseCode 1
+
+parseCode :: Int -> Parser String
+parseCode depth = parseLabel <|> parseParens depth
+
+parseLabel :: Parser String
+parseLabel = some Parser.alphaNumChar
+
+parseParens :: Int -> Parser String
+parseParens depth = do
+  beginning <- Parser.oneOf beginningChars
+  _ <- skip
+  label <- parseLabel
+  _ <- skip
+  element <- concat' <$> Parser.many (parseCode $ depth + 1)
+  let breaking = case headMay element >>= flip lookup parentheses of
+                      Nothing -> " "
+                      Just _ -> "\n" <> (concat . take depth $ repeat "  ")
+  _ <- skip
+  ending <- parseEndingOf' beginning
+  _ <- skip
+  pure $ (beginning:[]) <> label <> breaking <> element <> ending
+  where
+    parseEndingOf' beginning =
+      (:[]) <$> parseEndingOf beginning
+
+    beginningChars =
+      fmap fst parentheses
+
+    concat' :: [String] -> String
+    concat' = foldr append ""
+
+    append :: String -> String -> String
+    append "" y = y
+    append x "" = x
+    append x y  = x <> " " <> y
+
+
+parseEndingOf :: Char -> Parser Char
+parseEndingOf beginning =
+  case lookup beginning parentheses of
+    Nothing -> mzero
+    Just ending -> pure ending
+
+-- vim:filetype=haskell
